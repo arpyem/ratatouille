@@ -2,6 +2,7 @@ library(tidyverse)
 library(httr)
 library(reticulate)
 library(base64enc)
+library(jsonlite)
 
 
 auth <- list(
@@ -31,9 +32,11 @@ playlist_ids <- featured_playlists$playlists$items %>%
 # Split vector of ids into a list of smaller vectors with a maximum size for API call limits
 split_ids_to_chunks <- function(ids, chunk_size = 100) {
       
+      # Calculate how many chunks are needed for the unique ids and assign them to a chunk
       ids <- unique(ids)
       chunk_ids <- ceiling(1:length(ids) / chunk_size) 
       
+      # List ids by their assigned chunk
       chunk_ids %>%
             unique() %>%
             map(function(chunk) {
@@ -46,15 +49,20 @@ split_ids_to_chunks <- function(ids, chunk_size = 100) {
 
 
 
-# test = featured_playlists$playlists$items %>%
-test = featured_playlists$playlists$items[1:2] %>%
+df_track = featured_playlists$playlists$items %>%
+# df_track = featured_playlists$playlists$items[1:2] %>%
       map(function(featured_playlist) {
             
+            # Get playlist items
+            message("getting playlist: ", featured_playlist$name)
             playlist <- get_playlist(featured_playlist$id, token, verify = FALSE)
             
+            
+            # Extract details for each track in playlist
             track_details <- playlist$items %>%
                   map(function(track) {
                         
+                        # Return a row for each artist
                         artists <- track$track$artists %>%
                               map(function(artist) {
                                     
@@ -67,6 +75,7 @@ test = featured_playlists$playlists$items[1:2] %>%
                               }) %>%
                               bind_rows()
                         
+                        # Track data
                         tibble(
                               track_id = track$track$id,
                               track_name = track$track$name,
@@ -82,8 +91,12 @@ test = featured_playlists$playlists$items[1:2] %>%
                   }) %>%
                   bind_rows()
             
+            
+            # Set up for API calls to Tracks API (limit = 100)
             track_ids <- split_ids_to_chunks(track_details$track_id)
             
+            # Get audio features for each track
+            message("    getting audio features")
             track_features <- track_ids %>%
                   map(function(chunk) {
                         track_features <- get_track_features(chunk, token, verify = FALSE)
@@ -91,12 +104,51 @@ test = featured_playlists$playlists$items[1:2] %>%
                   }) %>%
                   bind_rows()
             
-      })
+            
+            # Set up for API calls to Artists API (limit = 50)
+            artist_ids <- split_ids_to_chunks(track_details$artist_id, chunk_size = 50)
+            
+            # Get genres from artist data
+            message("    getting genres")
+            genres <- artist_ids %>%
+                  map(function(chunk) {
+                        
+                        artist_details <- get_artists(chunk, token, verify = FALSE)
+                        
+                        # Get genre data for each artist
+                        artist_details$artists %>%
+                              map(function(artist) {
+                                    
+                                    genres <- artist$genres
+                                    
+                                    # Artists with no genre data return an empty list - set to NA to create dataframe
+                                    if (length(genres) < 1) {
+                                          genres <- NA
+                                    }
+                                    
+                                    # Return a row for each genre
+                                    tibble(
+                                          id = artist$id,
+                                          genre = genres
+                                    )
+                                    
+                              }) %>%
+                              bind_rows()
+                        
+                  }) %>%
+                  bind_rows()
+            
+            
+            # Combine data
+            track_details %>%
+                  left_join(track_features, by = c("track_id" = "id")) %>%
+                  left_join(genres, by = c("artist_id" = "id"))
+            
+      }) %>%
+      bind_rows()
 
+write_rds(x = df_track, file = "data/tracks_featured.rds")
 
-
-
-test2 = left_join(test, track_features, by = c("track_id" = "id"))
 
 
 

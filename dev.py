@@ -176,8 +176,14 @@ from pprint import pprint
 pprint(recipes['recipes'][0])
 
 
-with open('data/recipes_random.json', 'w') as file:
-      json.dump(recipes, file)
+
+request = requests.get(
+      url = 'https://api.spoonacular.com/recipes/random?apiKey=' + r.auth['SPOONACULAR_APIKEY'] + '&number=2',
+      verify = False
+)
+
+recipes = request.json()
+
 
 
 for recipe in recipes['recipes']:
@@ -192,6 +198,7 @@ def get_random_recipes(n, apiKey, verify = True):
       )
 
 
-
+with open('data/recipes_random.json', 'w') as file:
+      json.dump(recipes, file)
 
 
